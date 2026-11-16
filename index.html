@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TableFlow - Gestión de Salas, Planos y Reservas</title>
+    <!-- Carga de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Fuente Inter de Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Iconos Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+        }
+        /* Cuadrícula arquitectónica para el plano */
+        .blueprint-grid {
+            background-size: 30px 30px;
+            background-image: 
+                linear-gradient(to right, rgba(148, 163, 184, 0.2) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(148, 163, 184, 0.2) 1px, transparent 1px);
+        }
+        /* Estilo suave para barras de desplazamiento */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        /* Animación sutil para notificaciones */
+        @keyframes slideIn {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .toast-enter {
+            animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-screen flex flex-col overflow-hidden">
+
+    <!-- BARRA DE NAVEGACIÓN SUPERIOR -->
+    <header class="bg-white border-b border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3 shadow-sm z-20">
+        <!-- Logo y Marca -->
+        <div class="flex items-center gap-3">
+            <div class="bg-indigo-600 text-white p-2 rounded-xl shadow-sm">
+                <i class="ph ph-squares-four text-xl"></i>
+            </div>
+            <div>
+                <h1 class="font-bold text-slate-900 text-base sm:text-lg leading-tight">TableFlow Pro</h1>
+                <p class="text-xs text-slate-500 hidden sm:block">Gestión Visual de Sala y Turnos</p>
+            </div>
+        </div>
+
+        <!-- Controles Centrales: Fecha y Selector de Sala -->
+        <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+            <!-- Selector de Fecha -->
+            <div class="flex items-center bg-slate-100 rounded-xl p-1 border border-slate-200">
+                <button onclick="changeDate(-1)" class="p-1.5 hover:bg-white rounded-lg text-slate-600 transition" title="Día anterior">
+                    <i class="ph ph-caret-left font-bold"></i>
+                </button>
+                <div class="flex items-center gap-1.5 px-2">
+                    <i class="ph ph-calendar-blank text-indigo-600"></i>
+                    <input type="date" id="dateSelector" class="bg-transparent text-sm font-semibold text-slate-700 focus:outline-none cursor-pointer">
+                </div>
+                <button onclick="changeDate(1)" class="p-1.5 hover:bg-white rounded-lg text-slate-600 transition" title="Día siguiente">
+                    <i class="ph ph-caret-right font-bold"></i>
+                </button>
+            </div>
+
+            <!-- Selector de Sala y Botones de Gestión de Sala -->
+            <div class="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <select id="roomSelector" onchange="selectRoom(this.value)" class="bg-white text-sm font-semibold text-slate-800 py-1.5 px-3 rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+                    <!-- Opciones dinámicas -->
+                </select>
+                <button onclick="openRoomModal('edit')" class="p-2 hover:bg-white text-slate-600 hover:text-indigo-600 rounded-lg transition" title="Editar sala actual (m² / Plano)">
+                    <i class="ph ph-pencil-simple text-lg"></i>
+                </button>
+                <button onclick="openRoomModal('create')" class="p-2 hover:bg-white text-slate-600 hover:text-emerald-600 rounded-lg transition" title="Añadir nueva sala">
+                    <i class="ph ph-plus-circle text-lg"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Conmutador de Modo: Vista Operativa vs Editor de Planos -->
+        <div class="flex items-center gap-2">
+            <div class="bg-slate-100 p-1 rounded-xl border border-slate-200 flex items-center">
+                <button id="btnModeService" onclick="setMode('service')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition bg-indigo-600 text-white shadow-sm">
+                    <i class="ph ph-fork-knife"></i>
+                    <span>Reservas</span>
+                </button>
+                <button id="btnModeEditor" onclick="setMode('editor')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition text-slate-600 hover:text-slate-900">
+                    <i class="ph ph-blueprint"></i>
+                    <span>Editor Plano</span>
+                </button>
+            </div>
+            <button onclick="resetDemoData()" class="p-2 text-slate-400 hover:text-rose-600 rounded-lg transition" title="Restaurar datos de ejemplo">
+                <i class="ph ph-arrow-counter-clockwise text-lg"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- CONTENIDO PRINCIPAL -->
+    <main class="flex-1 flex flex-col lg:flex-row overflow-hidden">
+        
+        <!-- ÁREA DEL PLANO INTERACTIVO (Izquierda / Centro) -->
+        <section class="flex-1 flex flex-col bg-slate-200/70 p-3 sm:p-5 overflow-hidden relative">
+            
+            <!-- Barra de Estado / Herramientas del Plano -->
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3 bg-white/90 backdrop-blur px-4 py-2.5 rounded-xl border border-slate-200/80 shadow-sm">
+                <div class="flex items-center gap-3">
+                    <span id="roomTitleBadge" class="font-bold text-slate-800 text-sm sm:text-base">Salón Principal</span>
+                    <span id="roomAreaBadge" class="text-xs font-medium bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full border border-indigo-100">85 m²</span>
+                    <span class="text-xs text-slate-500 hidden md:inline">Horario Servicio: <strong>12:30 - 17:30</strong></span>
+                </div>
+
+                <!-- Leyenda en Modo Servicio -->
+                <div id="serviceLegend" class="flex items-center gap-3 text-xs font-medium">
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-emerald-500 inline-block shadow-sm"></span>
+                        <span>Libre</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-amber-500 inline-block shadow-sm"></span>
+                        <span>Por Turnos</span>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                        <span class="w-3 h-3 rounded-full bg-rose-500 inline-block shadow-sm"></span>
+                        <span>Completa</span>
+                    </div>
+                </div>
+
+                <!-- Herramientas en Modo Editor -->
+                <div id="editorToolbar" class="hidden flex items-center gap-2">
+                    <span class="text-xs text-slate-500 hidden sm:inline mr-2"><i class="ph ph-hand-grabbing"></i> Arrastra las mesas para moverlas</span>
+                    <button onclick="openAddTableModal()" class="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-semibold px-3 py-1.5 rounded-lg shadow-sm transition">
+                        <i class="ph ph-plus font-bold"></i>
+                        <span>Añadir Mesa</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Contenedor Scrollable del Lienzo -->
+            <div class="flex-1 overflow-auto flex items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-100/80 p-4">
+                <!-- Lienzo del Plano (Escala dinámica según m²) -->
+                <div id="floorPlanCanvas" class="relative bg-white shadow-xl rounded-xl border border-slate-300 blueprint-grid transition-all duration-300 overflow-hidden" style="width: 820px; height: 540px; min-width: 820px; min-height: 540px;">
+                    <!-- Imagen de fondo del plano si existe -->
+                    <img id="floorPlanBgImage" src="" alt="Plano de sala" class="hidden absolute inset-0 w-full h-full object-cover opacity-35 pointer-events-none">
+                    
+                    <!-- Indicador de escala en esquina -->
+                    <div class="absolute bottom-2 right-3 text-[11px] font-mono text-slate-400 bg-white/80 px-2 py-0.5 rounded pointer-events-none z-0">
+                        Escala: <span id="scaleLabel">85 m²</span>
+                    </div>
+
+                    <!-- Contenedor donde se renderizan las mesas -->
+                    <div id="tablesLayer" class="absolute inset-0 z-10"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- PANEL LATERAL: RESUMEN DE RESERVAS DEL DÍA (Derecha) -->
+        <aside class="w-full lg:w-96 bg-white border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col h-72 lg:h-auto z-10 shadow-sm">
+            <div class="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <div>
+                    <h2 class="font-bold text-slate-800 text-sm uppercase tracking-wider">Reservas del Día</h2>
+                    <p id="sidebarDateLabel" class="text-xs text-slate-500 mt-0.5">Hoy</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span id="totalCoversBadge" class="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full">0 pax</span>
+                </div>
+            </div>
+
+            <!-- Lista de Reservas -->
+            <div id="reservationsList" class="flex-1 overflow-y-auto p-3 space-y-2.5">
+                <!-- Tarjetas de reserva dinámicas -->
+            </div>
+        </aside>
+    </main>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 1: GESTIÓN DE RESERVA Y LÍNEA TEMPORAL POR MESA (12:30 - 17:30) -->
+    <!-- ===================================================================== -->
+    <div id="reservationModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-3 sm:p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden border border-slate-200">
+            <!-- Cabecera Modal -->
+            <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-bold text-lg shadow-sm" id="modalTableCode">M1</div>
+                    <div>
+                        <h3 class="font-bold text-slate-900 text-lg" id="modalTableTitle">Mesa M1</h3>
+                        <p class="text-xs text-slate-500" id="modalTableSubtitle">Capacidad máx: 4 comensales · Servicio 12:30 - 17:30</p>
+                    </div>
+                </div>
+                <button onclick="closeModal('reservationModal')" class="text-slate-400 hover:text-slate-700 p-1.5 rounded-lg hover:bg-slate-200/50 transition">
+                    <i class="ph ph-x text-xl"></i>
+                </button>
+            </div>
+
+            <!-- Cuerpo del Modal -->
+            <div class="p-6 overflow-y-auto space-y-6">
+                
+                <!-- 1. LÍNEA TEMPORAL VISUAL DEL SERVICIO (12:30 - 17:30) -->
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <label class="text-xs font-bold uppercase tracking-wider text-slate-500">Ocupación del Servicio (12:30 - 17:30)</label>
+                        <span class="text-xs text-slate-400">Tramos de 30 min</span>
+                    </div>
+                    <!-- Barra de timeline interactiva -->
+                    <div id="timelineContainer" class="grid grid-cols-10 gap-1 bg-slate-100 p-2 rounded-xl border border-slate-200">
+                        <!-- Bloques generados por JS -->
+                    </div>
+                </div>
+
+                <!-- 2. RESERVAS EXISTENTES EN ESTA MESA HOY -->
+                <div id="existingTableReservationsSection" class="hidden">
+                    <label class="text-xs font-bold uppercase tracking-wider text-slate-500 block mb-2">Reservas asignadas a esta mesa</label>
+                    <div id="existingTableReservationsList" class="space-y-2">
+                        <!-- Lista de reservas de la mesa -->
+                    </div>
+                </div>
+
+                <!-- 3. FORMULARIO PARA NUEVA RESERVA -->
+                <form id="newReservationForm" onsubmit="handleSaveReservation(event)" class="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h4 class="font-bold text-slate-800 text-sm flex items-center gap-1.5">
+                            <i class="ph ph-calendar-plus text-indigo-600 text-lg"></i>
+                            <span>Adjudicar Nueva Reserva</span>
+                        </h4>
+                    </div>
+
+                    <!-- Selector de Modalidad: Reserva Completa vs Por Turnos -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <label class="cursor-pointer">
+                            <input type="radio" name="bookingType" value="full" class="peer sr-only" checked onchange="toggleBookingTypeUI()">
+                            <div class="p-3 rounded-xl border-2 border-slate-200 bg-white peer-checked:border-indigo-600 peer-checked:bg-indigo-50/50 transition">
+                                <div class="flex items-center gap-2 font-semibold text-sm text-slate-800">
+                                    <i class="ph ph-lock-key text-indigo-600"></i>
+                                    <span>Servicio Completo</span>
+                                </div>
+                                <p class="text-xs text-slate-500 mt-1">Bloquea la mesa desde la llegada hasta el cierre (17:30) sin rotación.</p>
+                            </div>
+                        </label>
+
+                        <label class="cursor-pointer">
+                            <input type="radio" name="bookingType" value="shift" class="peer sr-only" onchange="toggleBookingTypeUI()">
+                            <div class="p-3 rounded-xl border-2 border-slate-200 bg-white peer-checked:border-amber-500 peer-checked:bg-amber-50/50 transition">
+                                <div class="flex items-center gap-2 font-semibold text-sm text-slate-800">
+                                    <i class="ph ph-clock-countdown text-amber-600"></i>
+                                    <span>Partir Turno / Tramo</span>
+                                </div>
+                                <p class="text-xs text-slate-500 mt-1">Define hora de llegada y salida para permitir más turnos en la mesa.</p>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Datos del Cliente y Horario -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Nombre del Cliente *</label>
+                            <input type="text" id="resClientName" required placeholder="Ej. José Antonio" class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Teléfono (WhatsApp)</label>
+                            <input type="tel" id="resClientPhone" placeholder="Ej. +34 612 345 678" class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Comensales *</label>
+                            <input type="number" id="resCovers" min="1" max="20" required value="2" class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Hora Llegada *</label>
+                            <select id="resStartTime" onchange="updateEndTimeOptions()" class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <!-- Opciones generadas por JS -->
+                            </select>
+                        </div>
+                        <div id="endTimeWrapper" class="opacity-50 pointer-events-none">
+                            <label class="block text-xs font-semibold text-slate-700 mb-1">Hora Salida *</label>
+                            <select id="resEndTime" class="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                                <!-- Opciones generadas por JS -->
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Mensaje de error de solapamiento -->
+                    <div id="bookingConflictError" class="hidden p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
+                        <i class="ph ph-warning-circle text-base"></i>
+                        <span id="bookingConflictText">El horario seleccionado se solapa con otra reserva en esta mesa.</span>
+                    </div>
+
+                    <div class="flex justify-end gap-2 pt-2">
+                        <button type="button" onclick="closeModal('reservationModal')" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-200 rounded-lg transition">Cancelar</button>
+                        <button type="submit" class="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm transition flex items-center gap-1.5">
+                            <i class="ph ph-check-bold"></i>
+                            <span>Adjudicar Mesa</span>
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 2: CREAR / EDITAR SALA (NOMBRE, M², PLANO / FOTO)               -->
+    <!-- ===================================================================== -->
+    <div id="roomModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-200">
+            <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <h3 class="font-bold text-slate-900 text-lg" id="roomModalTitle">Editar Sala</h3>
+                <button onclick="closeModal('roomModal')" class="text-slate-400 hover:text-slate-700 p-1 rounded-lg">
+                    <i class="ph ph-x text-xl"></i>
+                </button>
+            </div>
+            <form id="roomForm" onsubmit="handleSaveRoom(event)" class="p-6 space-y-4">
+                <input type="hidden" id="roomFormMode" value="edit">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Nombre de la Sala *</label>
+                    <input type="text" id="roomNameInput" required placeholder="Ej. Terraza Jardín" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Superficie (Metros Cuadrados - m²) *</label>
+                    <input type="number" id="roomAreaInput" min="15" max="500" required value="80" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    <p class="text-[11px] text-slate-500 mt-1">Ajusta automáticamente la proporción del lienzo del plano.</p>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Subir Plano o Foto de Fondo (Opcional)</label>
+                    <div class="flex items-center gap-2">
+                        <input type="file" id="roomBgInput" accept="image/*" class="text-xs text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer w-full border border-slate-200 rounded-lg p-1">
+                    </div>
+                    <div id="currentBgPreviewWrapper" class="hidden mt-2 flex items-center justify-between bg-slate-50 p-2 rounded-lg border border-slate-200">
+                        <span class="text-xs text-slate-600 truncate">Imagen de plano cargada</span>
+                        <button type="button" onclick="clearRoomBgImage()" class="text-xs text-rose-600 hover:underline font-medium">Quitar imagen</button>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between pt-3 border-t border-slate-100">
+                    <button type="button" id="btnDeleteRoom" onclick="handleDeleteRoom()" class="text-xs font-semibold text-rose-600 hover:text-rose-700 px-3 py-2 rounded-lg hover:bg-rose-50 transition">Eliminar Sala</button>
+                    <div class="flex gap-2 ml-auto">
+                        <button type="button" onclick="closeModal('roomModal')" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                        <button type="submit" class="px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm">Guardar Sala</button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MODAL 3: AÑADIR MESA EN EL EDITOR DE PLANOS                           -->
+    <!-- ===================================================================== -->
+    <div id="addTableModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-200">
+            <div class="px-5 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                <h3 class="font-bold text-slate-900 text-base">Nueva Mesa en Plano</h3>
+                <button onclick="closeModal('addTableModal')" class="text-slate-400 hover:text-slate-700 p-1 rounded-lg">
+                    <i class="ph ph-x text-lg"></i>
+                </button>
+            </div>
+            <form onsubmit="handleAddTable(event)" class="p-5 space-y-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Código / Número de Mesa *</label>
+                    <input type="text" id="newTableCode" required placeholder="Ej. M7, T1, VIP..." class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Capacidad (Comensales) *</label>
+                    <input type="number" id="newTableCapacity" min="1" max="24" required value="4" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Forma de la Mesa</label>
+                    <select id="newTableShape" class="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="rect">Rectangular / Cuadrada</option>
+                        <option value="round">Redonda</option>
+                    </select>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button type="button" onclick="closeModal('addTableModal')" class="px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
+                    <button type="submit" class="px-4 py-2 text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-sm">Colocar Mesa</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- CONTENEDOR DE NOTIFICACIONES TOAST -->
+    <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- LÓGICA JAVASCRIPT DE LA APLICACIÓN -->
+    <script>
+        // =========================================================================
+        // 1. CONFIGURACIÓN Y ESTADO INICIAL
+        // =========================================================================
+        const STORAGE_KEY = 'tableflow_restaurant_app_v1';
+        
+        // Horario de servicio: 12:30 (750 min) a 17:30 (1050 min) en tramos de 30 min
+        const SERVICE_SLOTS = [
+            "12:30", "13:00", "13:30", "14:00", "14:30", 
+            "15:00", "15:30", "16:00", "16:30", "17:00", "17:30"
+        ];
+
+        // Fecha actual en formato YYYY-MM-DD
+        const getTodayISO = () => {
+            const d = new Date();
+            return d.toISOString().split('T')[0];
+        };
+
+        // Datos de ejemplo precargados
+        const defaultState = {
+            currentDate: getTodayISO(),
+            currentRoomId: 'room-1',
+            mode: 'service', // 'service' | 'editor'
+            rooms: [
+                {
+                    id: 'room-1',
+                    name: 'Salón Principal',
+                    areaM2: 85,
+                    bgImage: '',
+                    tables: [
+                        { id: 't-1', code: 'M1', capacity: 4, shape: 'rect', x: 60, y: 60 },
+                        { id: 't-2', code: 'M2', capacity: 4, shape: 'rect', x: 260, y: 60 },
+                        { id: 't-3', code: 'M3', capacity: 2, shape: 'round', x: 470, y: 65 },
+                        { id: 't-4', code: 'M4', capacity: 6, shape: 'rect', x: 60, y: 260 },
+                        { id: 't-5', code: 'M5', capacity: 4, shape: 'round', x: 300, y: 260 },
+                        { id: 't-6', code: 'M6', capacity: 8, shape: 'rect', x: 520, y: 250 }
+                    ]
+                },
+                {
+                    id: 'room-2',
+                    name: 'Terraza Exterior',
+                    areaM2: 60,
+                    bgImage: '',
+                    tables: [
+                        { id: 't-21', code: 'T1', capacity: 4, shape: 'round', x: 80, y: 80 },
+                        { id: 't-22', code: 'T2', capacity: 4, shape: 'round', x: 280, y: 80 },
+                        { id: 't-23', code: 'T3', capacity: 2, shape: 'round', x: 480, y: 80 },
+                        { id: 't-24', code: 'T4', capacity: 6, shape: 'rect', x: 180, y: 260 }
+                    ]
+                }
+            ],
+            reservations: [
+                {
+                    id: 'res-101',
+                    date: getTodayISO(),
+                    roomId: 'room-1',
+                    tableId: 't-1',
+                    clientName: 'José Antonio',
+                    phone: '+34 612 345 678',
+                    covers: 4,
+                    type: 'full', // 'full' | 'shift'
+                    startTime: '13:30',
+                    endTime: '17:30'
+                },
+                {
+                    id: 'res-102',
+                    date: getTodayISO(),
+                    roomId: 'room-1',
+                    tableId: 't-2',
+                    clientName: 'María Carmen',
+                    phone: '+34 699 887 766',
+                    covers: 3,
+                    type: 'shift',
+                    startTime: '13:00',
+                    endTime: '15:00'
+                },
+                {
+                    id: 'res-103',
+                    date: getTodayISO(),
+                    roomId: 'room-1',
+                    tableId: 't-2',
+                    clientName: 'Carlos Mendoza',
+                    phone: '+34 655 112 233',
+                    covers: 4,
+                    type: 'shift',
+                    startTime: '15:30',
+                    endTime: '17:30'
+                },
+                {
+                    id: 'res-104',
+                    date: getTodayISO(),
+                    roomId: 'room-1',
+                    tableId: 't-4',
+                    clientName: 'Familia López',
+                    phone: '+34 600 998 877',
+                    covers: 6,
+                    type: 'full',
+                    startTime: '14:00',
+                    endTime: '17:30'
+                }
+            ]
+        };
+
+        let state = loadState();
+        let activeTableIdForModal = null;
+        let tempRoomBgBase64 = null;
+
+        // =========================================================================
+        // 2. PERSISTENCIA EN LOCALSTORAGE Y UTILIDADES
+        // =========================================================================
+        function loadState() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    // Asegurar que la fecha seleccionada sea válida
+                    if (!parsed.currentDate) parsed.currentDate = getTodayISO();
+                    return parsed;
+                }
+            } catch (e) {
+                console.error("Error cargando estado:", e);
+            }
+            return JSON.parse(JSON.stringify(defaultState));
+        }
+
+        function saveState() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            } catch (e) {
+                showToast("Aviso: No se pudo guardar en memoria local (posible imagen muy pesada).", "error");
+            }
+        }
+
+        function resetDemoData() {
+            state = JSON.parse(JSON.stringify(defaultState));
+            saveState();
+            renderAll();
+            showToast("Datos de ejemplo restaurados correctamente.", "info");
+        }
+
+        function timeToMinutes(timeStr) {
+            const [h, m] = timeStr.split(':').map(Number);
+            return h * 60 + m;
+        }
+
+        function getCurrentRoom() {
+            return state.rooms.find(r => r.id === state.currentRoomId) || state.rooms[0];
+        }
+
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            const colors = {
+                success: 'bg-emerald-600 text-white',
+                error: 'bg-rose-600 text-white',
+                info: 'bg-slate-800 text-white',
+                whatsapp: 'bg-[#25D366] text-white'
+            };
+            const icons = {
+                success: 'ph-check-circle',
+                error: 'ph-warning-circle',
+                info: 'ph-info',
+                whatsapp: 'ph-whatsapp-logo'
+            };
+            toast.className = `${colors[type] || colors.info} px-4 py-3 rounded-xl shadow-lg flex items-center gap-2.5 text-sm font-medium toast-enter pointer-events-auto max-w-sm`;
+            toast.innerHTML = `<i class="ph ${icons[type]} text-lg shrink-0"></i><span>${message}</span>`;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 3500);
+        }
+
+        // =========================================================================
+        // 3. GESTIÓN DE FECHAS, SALAS Y MODOS
+        // =========================================================================
+        function initControls() {
+            const dateInput = document.getElementById('dateSelector');
+            dateInput.value = state.currentDate;
+            dateInput.addEventListener('change', (e) => {
+                state.currentDate = e.target.value;
+                saveState();
+                renderAll();
+            });
+        }
+
+        function changeDate(days) {
+            const current = new Date(state.currentDate);
+            current.setDate(current.getDate() + days);
+            state.currentDate = current.toISOString().split('T')[0];
+            document.getElementById('dateSelector').value = state.currentDate;
+            saveState();
+            renderAll();
+        }
+
+        function selectRoom(roomId) {
+            state.currentRoomId = roomId;
+            saveState();
+            renderAll();
+        }
+
+        function setMode(mode) {
+            state.mode = mode;
+            const btnService = document.getElementById('btnModeService');
+            const btnEditor = document.getElementById('btnModeEditor');
+            const serviceLegend = document.getElementById('serviceLegend');
+            const editorToolbar = document.getElementById('editorToolbar');
+
+            if (mode === 'service') {
+                btnService.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition bg-indigo-600 text-white shadow-sm";
+                btnEditor.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition text-slate-600 hover:text-slate-900";
+                serviceLegend.classList.remove('hidden');
+                editorToolbar.classList.add('hidden');
+            } else {
+                btnEditor.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition bg-amber-500 text-white shadow-sm";
+                btnService.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition text-slate-600 hover:text-slate-900";
+                serviceLegend.classList.add('hidden');
+                editorToolbar.classList.remove('hidden');
+            }
+            renderFloorPlan();
+        }
+
+        // =========================================================================
+        // 4. RENDERIZADO PRINCIPAL DEL PLANO Y MESAS
+        // =========================================================================
+        function renderAll() {
+            renderRoomSelector();
+            renderFloorPlan();
+            renderReservationsSidebar();
+        }
+
+        function renderRoomSelector() {
+            const selector = document.getElementById('roomSelector');
+            selector.innerHTML = state.rooms.map(r => 
+                `<option value="${r.id}" ${r.id === state.currentRoomId ? 'selected' : ''}>${r.name} (${r.areaM2} m²)</option>`
+            ).join('');
+
+            const room = getCurrentRoom();
+            document.getElementById('roomTitleBadge').textContent = room.name;
+            document.getElementById('roomAreaBadge').textContent = `${room.areaM2} m²`;
+            document.getElementById('scaleLabel').textContent = `${room.areaM2} m²`;
+        }
+
+        function renderFloorPlan() {
+            const room = getCurrentRoom();
+            const canvas = document.getElementById('floorPlanCanvas');
+            const tablesLayer = document.getElementById('tablesLayer');
+            const bgImg = document.getElementById('floorPlanBgImage');
+
+            // Escalar dimensiones del plano proporcionalmente a los m²
+            const scaleFactor = Math.max(0.75, Math.min(1.5, Math.sqrt(room.areaM2 / 80)));
+            const width = Math.round(820 * scaleFactor);
+            const height = Math.round(540 * scaleFactor);
+            canvas.style.width = `${width}px`;
+            canvas.style.height = `${height}px`;
+            canvas.style.minWidth = `${width}px`;
+            canvas.style.minHeight = `${height}px`;
+
+            // Imagen de fondo si existe
+            if (room.bgImage) {
+                bgImg.src = room.bgImage;
+                bgImg.classList.remove('hidden');
+            } else {
+                bgImg.classList.add('hidden');
+            }
+
+            // Obtener reservas de hoy en esta sala
+            const dayRoomReservations = state.reservations.filter(
+                res => res.date === state.currentDate && res.roomId === room.id
+            );
+
+            tablesLayer.innerHTML = '';
+
+            room.tables.forEach(table => {
+                const tableRes = dayRoomReservations
+                    .filter(r => r.tableId === table.id)
+                    .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+
+                const el = document.createElement('div');
+                
+                // Tamaño de mesa según capacidad
+                const isLarge = table.capacity >= 6;
+                const wClass = table.shape === 'round' ? (isLarge ? 'w-36 h-36 rounded-full' : 'w-32 h-32 rounded-full') : (isLarge ? 'w-44 h-32 rounded-2xl' : 'w-36 h-28 rounded-2xl');
+
+                // Determinar estado visual en modo servicio
+                let statusClasses = 'bg-white border-emerald-500 shadow-md hover:shadow-lg';
+                let badgeHtml = `<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Libre</span>`;
+                let detailsHtml = `<div class="text-[11px] text-slate-400 mt-1">Clic para reservar</div>`;
+
+                if (state.mode === 'editor') {
+                    statusClasses = 'bg-white border-indigo-500 border-dashed shadow-md cursor-grab active:cursor-grabbing hover:ring-4 hover:ring-indigo-500/20';
+                    badgeHtml = `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">${table.capacity} pax</span>`;
+                    detailsHtml = `<div class="text-[10px] text-slate-400 mt-1 flex items-center gap-1"><i class="ph ph-arrows-out-cardinal"></i> Mover</div>`;
+                } else if (tableRes.length > 0) {
+                    const hasFull = tableRes.some(r => r.type === 'full');
+                    if (hasFull) {
+                        statusClasses = 'bg-rose-50/95 border-rose-500 shadow-md hover:shadow-lg';
+                        badgeHtml = `<span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-500 text-white">Completa</span>`;
+                    } else {
+                        statusClasses = 'bg-amber-50/95 border-amber-500 shadow-md hover:shadow-lg';
+                        badgeHtml = `<span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-500 text-white">${tableRes.length} Turno${tableRes.length > 1 ? 's' : ''}</span>`;
+                    }
+
+                    // Mostrar directamente encima de la mesa: Nombre, Hora y Comensales
+                    const primaryRes = tableRes[0];
+                    detailsHtml = `
+                        <div class="w-full px-1.5 mt-1 text-center leading-tight">
+                            <div class="font-bold text-slate-900 text-xs truncate" title="${primaryRes.clientName}">${primaryRes.clientName}</div>
+                            <div class="text-[11px] font-semibold text-slate-700 mt-0.5 flex items-center justify-center gap-1">
+                                <span><i class="ph ph-clock"></i> ${primaryRes.startTime}</span>
+                                <span>·</span>
+                                <span><i class="ph ph-users"></i> ${primaryRes.covers}p</span>
+                            </div>
+                            ${tableRes.length > 1 ? `<div class="text-[10px] font-bold text-amber-700 mt-0.5">+${tableRes.length - 1} turno más</div>` : ''}
+                        </div>
+                    `;
+                }
+
+                el.className = `absolute border-2 ${wClass} ${statusClasses} flex flex-col items-center justify-center p-2 transition-shadow select-none cursor-pointer`;
+                el.style.left = `${table.x}px`;
+                el.style.top = `${table.y}px`;
+
+                el.innerHTML = `
+                    <div class="flex items-center gap-1.5">
+                        <span class="font-extrabold text-sm text-slate-800">${table.code}</span>
+                        ${state.mode === 'service' ? `<span class="text-[10px] text-slate-500 font-medium">(${table.capacity}p)</span>` : ''}
+                    </div>
+                    <div class="mt-0.5">${badgeHtml}</div>
+                    ${detailsHtml}
+                    ${state.mode === 'editor' ? `
+                        <button onclick="event.stopPropagation(); deleteTable('${table.id}')" class="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-rose-600 text-white flex items-center justify-center shadow hover:bg-rose-700 transition" title="Eliminar mesa">
+                            <i class="ph ph-trash text-xs"></i>
+                        </button>
+                    ` : ''}
+                `;
+
+                if (state.mode === 'service') {
+                    el.addEventListener('click', () => openReservationModal(table.id));
+                } else {
+                    enableDragAndDrop(el, table, canvas);
+                }
+
+                tablesLayer.appendChild(el);
+            });
+        }
+
+        // =========================================================================
+        // 5. ARRASTRAR Y SOLTAR (DRAG & DROP) EN MODO EDITOR
+        // =========================================================================
+        function enableDragAndDrop(element, tableObj, container) {
+            let isDragging = false;
+            let startX, startY, initialLeft, initialTop;
+
+            const onPointerDown = (e) => {
+                if (e.target.closest('button')) return;
+                isDragging = true;
+                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+                startX = clientX;
+                startY = clientY;
+                initialLeft = tableObj.x;
+                initialTop = tableObj.y;
+                element.style.zIndex = 50;
+            };
+
+            const onPointerMove = (e) => {
+                if (!isDragging) return;
+                e.preventDefault();
+                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+                
+                const dx = clientX - startX;
+                const dy = clientY - startY;
+
+                // Ajustar a cuadrícula de 10px para alineación limpia
+                let newX = Math.round((initialLeft + dx) / 10) * 10;
+                let newY = Math.round((initialTop + dy) / 10) * 10;
+
+                // Límites dentro del plano
+                const maxX = container.offsetWidth - element.offsetWidth;
+                const maxY = container.offsetHeight - element.offsetHeight;
+                newX = Math.max(0, Math.min(newX, maxX));
+                newY = Math.max(0, Math.min(newY, maxY));
+
+                element.style.left = `${newX}px`;
+                element.style.top = `${newY}px`;
+                tableObj.x = newX;
+                tableObj.y = newY;
+            };
+
+            const onPointerUp = () => {
+                if (!isDragging) return;
+                isDragging = false;
+                element.style.zIndex = '';
+                saveState();
+            };
+
+            element.addEventListener('mousedown', onPointerDown);
+            window.addEventListener('mousemove', onPointerMove);
+            window.addEventListener('mouseup', onPointerUp);
+
+            element.addEventListener('touchstart', onPointerDown, { passive: false });
+            window.addEventListener('touchmove', onPointerMove, { passive: false });
+            window.addEventListener('touchend', onPointerUp);
+        }
+
+        // =========================================================================
+        // 6. MODAL DE RESERVAS Y LÍNEA TEMPORAL (12:30 - 17:30)
+        // =========================================================================
+        function openReservationModal(tableId) {
+            activeTableIdForModal = tableId;
+            const room = getCurrentRoom();
+            const table = room.tables.find(t => t.id === tableId);
+            if (!table) return;
+
+            document.getElementById('modalTableCode').textContent = table.code;
+            document.getElementById('modalTableTitle').textContent = `Mesa ${table.code} · ${room.name}`;
+            document.getElementById('modalTableSubtitle').textContent = `Capacidad recomendada: ${table.capacity} comensales · Servicio 12:30 - 17:30`;
+            document.getElementById('resCovers').value = Math.min(2, table.capacity);
+            document.getElementById('bookingConflictError').classList.add('hidden');
+            document.getElementById('newReservationForm').reset();
+            document.getElementById('resCovers').value = table.capacity;
+
+            // Poblar selectores de hora
+            const startSelect = document.getElementById('resStartTime');
+            startSelect.innerHTML = SERVICE_SLOTS.slice(0, -1).map(t => `<option value="${t}">${t}</option>`).join('');
+            startSelect.value = "13:30";
+            updateEndTimeOptions();
+            toggleBookingTypeUI();
+
+            renderModalTimelineAndList(table);
+            document.getElementById('reservationModal').classList.remove('hidden');
+        }
+
+        function renderModalTimelineAndList(table) {
+            const room = getCurrentRoom();
+            const tableRes = state.reservations
+                .filter(r => r.date === state.currentDate && r.roomId === room.id && r.tableId === table.id)
+                .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+
+            // 1. Renderizar los 10 bloques de 30 min (12:30 a 17:30)
+            const timeline = document.getElementById('timelineContainer');
+            timeline.innerHTML = '';
+
+            for (let i = 0; i < SERVICE_SLOTS.length - 1; i++) {
+                const slotStart = SERVICE_SLOTS[i];
+                const slotEnd = SERVICE_SLOTS[i + 1];
+                const sMin = timeToMinutes(slotStart);
+                const eMin = timeToMinutes(slotEnd);
+
+                // Buscar si alguna reserva cubre este tramo
+                const occupyingRes = tableRes.find(r => {
+                    const rStart = timeToMinutes(r.startTime);
+                    const rEnd = r.type === 'full' ? timeToMinutes('17:30') : timeToMinutes(r.endTime);
+                    return sMin >= rStart && eMin <= rEnd;
+                });
+
+                const block = document.createElement('div');
+                if (occupyingRes) {
+                    const isFull = occupyingRes.type === 'full';
+                    block.className = `${isFull ? 'bg-rose-500 text-white' : 'bg-amber-500 text-white'} rounded-lg p-1.5 text-center shadow-sm flex flex-col justify-center`;
+                    block.title = `${occupyingRes.clientName} (${occupyingRes.startTime} - ${isFull ? 'Cierre' : occupyingRes.endTime})`;
+                    block.innerHTML = `
+                        <span class="text-[10px] font-bold leading-none">${slotStart}</span>
+                        <span class="text-[9px] truncate mt-1 opacity-90">${occupyingRes.clientName.split(' ')[0]}</span>
+                    `;
+                } else {
+                    block.className = `bg-emerald-100/80 text-emerald-800 border border-emerald-200 rounded-lg p-1.5 text-center flex flex-col justify-center cursor-pointer hover:bg-emerald-200 transition`;
+                    block.title = `Disponible a las ${slotStart} (Clic para seleccionar hora)`;
+                    block.onclick = () => {
+                        document.getElementById('resStartTime').value = slotStart;
+                        updateEndTimeOptions();
+                    };
+                    block.innerHTML = `
+                        <span class="text-[10px] font-bold leading-none">${slotStart}</span>
+                        <span class="text-[9px] mt-1 text-emerald-600">Libre</span>
+                    `;
+                }
+                timeline.appendChild(block);
+            }
+
+            // 2. Renderizar lista de reservas existentes en esta mesa
+            const listSection = document.getElementById('existingTableReservationsSection');
+            const listContainer = document.getElementById('existingTableReservationsList');
+
+            if (tableRes.length === 0) {
+                listSection.classList.add('hidden');
+            } else {
+                listSection.classList.remove('hidden');
+                listContainer.innerHTML = tableRes.map(r => `
+                    <div class="flex items-center justify-between bg-white p-3 rounded-xl border border-slate-200 shadow-sm">
+                        <div class="flex items-center gap-3">
+                            <span class="w-2.5 h-2.5 rounded-full ${r.type === 'full' ? 'bg-rose-500' : 'bg-amber-500'}"></span>
+                            <div>
+                                <div class="font-bold text-sm text-slate-800">${r.clientName} <span class="text-xs font-normal text-slate-500">(${r.covers} comensales)</span></div>
+                                <div class="text-xs text-slate-500">
+                                    ${r.type === 'full' ? `Desde <strong>${r.startTime}</strong> hasta cierre (Servicio Completo)` : `Turno: <strong>${r.startTime} - ${r.endTime}</strong>`}
+                                    ${r.phone ? ` · ${r.phone}` : ''}
+                                </div>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <button onclick="sendWhatsAppReminder('${r.id}')" class="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition" title="Enviar recordatorio WhatsApp">
+                                <i class="ph ph-whatsapp-logo text-lg"></i>
+                            </button>
+                            <button onclick="deleteReservation('${r.id}')" class="p-2 text-rose-500 hover:bg-rose-50 rounded-lg transition" title="Cancelar reserva">
+                                <i class="ph ph-trash text-lg"></i>
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function toggleBookingTypeUI() {
+            const type = document.querySelector('input[name="bookingType"]:checked').value;
+            const endWrapper = document.getElementById('endTimeWrapper');
+            if (type === 'shift') {
+                endWrapper.classList.remove('opacity-50', 'pointer-events-none');
+            } else {
+                endWrapper.classList.add('opacity-50', 'pointer-events-none');
+            }
+        }
+
+        function updateEndTimeOptions() {
+            const startVal = document.getElementById('resStartTime').value;
+            const startIndex = SERVICE_SLOTS.indexOf(startVal);
+            const endSelect = document.getElementById('resEndTime');
+            
+            const validEnds = SERVICE_SLOTS.slice(startIndex + 1);
+            endSelect.innerHTML = validEnds.map(t => `<option value="${t}">${t}</option>`).join('');
+            // Por defecto sugerir 1.5 horas (3 bloques) si es posible
+            const defaultEndIndex = Math.min(startIndex + 3, SERVICE_SLOTS.length - 1);
+            endSelect.value = SERVICE_SLOTS[defaultEndIndex];
+        }
+
+        function handleSaveReservation(e) {
+            e.preventDefault();
+            const room = getCurrentRoom();
+            const table = room.tables.find(t => t.id === activeTableIdForModal);
+            if (!table) return;
+
+            const type = document.querySelector('input[name="bookingType"]:checked').value;
+            const clientName = document.getElementById('resClientName').value.trim();
+            const phone = document.getElementById('resClientPhone').value.trim();
+            const covers = parseInt(document.getElementById('resCovers').value, 10);
+            const startTime = document.getElementById('resStartTime').value;
+            const endTime = type === 'full' ? '17:30' : document.getElementById('resEndTime').value;
+
+            const newStartMin = timeToMinutes(startTime);
+            const newEndMin = timeToMinutes(endTime);
+
+            // Validar solapamiento horario en la misma mesa y fecha
+            const existing = state.reservations.filter(
+                r => r.date === state.currentDate && r.roomId === room.id && r.tableId === table.id
+            );
+
+            const conflict = existing.find(r => {
+                const rStart = timeToMinutes(r.startTime);
+                const rEnd = r.type === 'full' ? timeToMinutes('17:30') : timeToMinutes(r.endTime);
+                return newStartMin < rEnd && newEndMin > rStart;
+            });
+
+            const errorBox = document.getElementById('bookingConflictError');
+            if (conflict) {
+                document.getElementById('bookingConflictText').textContent = 
+                    `Conflicto con la reserva de ${conflict.clientName} (${conflict.startTime} - ${conflict.type === 'full' ? 'Cierre' : conflict.endTime}).`;
+                errorBox.classList.remove('hidden');
+                return;
+            }
+            errorBox.classList.add('hidden');
+
+            const newRes = {
+                id: 'res-' + Date.now(),
+                date: state.currentDate,
+                roomId: room.id,
+                tableId: table.id,
+                clientName,
+                phone,
+                covers,
+                type,
+                startTime,
+                endTime
+            };
+
+            state.reservations.push(newRes);
+            saveState();
+            renderAll();
+            renderModalTimelineAndList(table);
+            document.getElementById('resClientName').value = '';
+            document.getElementById('resClientPhone').value = '';
+            showToast(`Mesa ${table.code} adjudicada a ${clientName} (${startTime}).`, 'success');
+        }
+
+        function deleteReservation(resId) {
+            state.reservations = state.reservations.filter(r => r.id !== resId);
+            saveState();
+            renderAll();
+            if (activeTableIdForModal) {
+                const table = getCurrentRoom().tables.find(t => t.id === activeTableIdForModal);
+                if (table) renderModalTimelineAndList(table);
+            }
+            showToast('Reserva eliminada y mesa liberada.', 'info');
+        }
+
+        // =========================================================================
+        // 7. GESTIÓN DE SALAS Y MESAS (AÑADIR / EDITAR / SUBIR PLANO)
+        // =========================================================================
+        function openRoomModal(mode) {
+            document.getElementById('roomFormMode').value = mode;
+            const title = document.getElementById('roomModalTitle');
+            const nameInput = document.getElementById('roomNameInput');
+            const areaInput = document.getElementById('roomAreaInput');
+            const bgInput = document.getElementById('roomBgInput');
+            const previewWrapper = document.getElementById('currentBgPreviewWrapper');
+            const deleteBtn = document.getElementById('btnDeleteRoom');
+
+            bgInput.value = '';
+            tempRoomBgBase64 = null;
+
+            if (mode === 'edit') {
+                const room = getCurrentRoom();
+                title.textContent = `Editar Sala: ${room.name}`;
+                nameInput.value = room.name;
+                areaInput.value = room.areaM2;
+                tempRoomBgBase64 = room.bgImage || '';
+                if (room.bgImage) previewWrapper.classList.remove('hidden');
+                else previewWrapper.classList.add('hidden');
+                deleteBtn.classList.toggle('hidden', state.rooms.length <= 1);
+            } else {
+                title.textContent = 'Añadir Nueva Sala';
+                nameInput.value = '';
+                areaInput.value = 70;
+                previewWrapper.classList.add('hidden');
+                deleteBtn.classList.add('hidden');
+            }
+
+            document.getElementById('roomModal').classList.remove('hidden');
+        }
+
+        // Leer archivo de imagen de plano/foto
+        document.getElementById('roomBgInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                tempRoomBgBase64 = evt.target.result;
+                document.getElementById('currentBgPreviewWrapper').classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        });
+
+        function clearRoomBgImage() {
+            tempRoomBgBase64 = '';
+            document.getElementById('roomBgInput').value = '';
+            document.getElementById('currentBgPreviewWrapper').classList.add('hidden');
+        }
+
+        function handleSaveRoom(e) {
+            e.preventDefault();
+            const mode = document.getElementById('roomFormMode').value;
+            const name = document.getElementById('roomNameInput').value.trim();
+            const areaM2 = parseInt(document.getElementById('roomAreaInput').value, 10);
+
+            if (mode === 'edit') {
+                const room = getCurrentRoom();
+                room.name = name;
+                room.areaM2 = areaM2;
+                if (tempRoomBgBase64 !== null) room.bgImage = tempRoomBgBase64;
+                showToast(`Sala "${name}" actualizada (${areaM2} m²).`, 'success');
+            } else {
+                const newRoom = {
+                    id: 'room-' + Date.now(),
+                    name,
+                    areaM2,
+                    bgImage: tempRoomBgBase64 || '',
+                    tables: [
+                        { id: 't-' + Date.now() + '1', code: 'M1', capacity: 4, shape: 'rect', x: 80, y: 80 },
+                        { id: 't-' + Date.now() + '2', code: 'M2', capacity: 4, shape: 'rect', x: 280, y: 80 }
+                    ]
+                };
+                state.rooms.push(newRoom);
+                state.currentRoomId = newRoom.id;
+                showToast(`Sala "${name}" creada.`, 'success');
+            }
+
+            saveState();
+            closeModal('roomModal');
+            renderAll();
+        }
+
+        function handleDeleteRoom() {
+            if (state.rooms.length <= 1) return;
+            const room = getCurrentRoom();
+            state.rooms = state.rooms.filter(r => r.id !== room.id);
+            state.reservations = state.reservations.filter(res => res.roomId !== room.id);
+            state.currentRoomId = state.rooms[0].id;
+            saveState();
+            closeModal('roomModal');
+            renderAll();
+            showToast(`Sala "${room.name}" eliminada.`, 'info');
+        }
+
+        function openAddTableModal() {
+            const room = getCurrentRoom();
+            const nextNum = room.tables.length + 1;
+            document.getElementById('newTableCode').value = `M${nextNum}`;
+            document.getElementById('newTableCapacity').value = 4;
+            document.getElementById('addTableModal').classList.remove('hidden');
+        }
+
+        function handleAddTable(e) {
+            e.preventDefault();
+            const room = getCurrentRoom();
+            const code = document.getElementById('newTableCode').value.trim();
+            const capacity = parseInt(document.getElementById('newTableCapacity').value, 10);
+            const shape = document.getElementById('newTableShape').value;
+
+            room.tables.push({
+                id: 't-' + Date.now(),
+                code,
+                capacity,
+                shape,
+                x: 40 + (room.tables.length * 25) % 400,
+                y: 40 + (room.tables.length * 25) % 300
+            });
+
+            saveState();
+            closeModal('addTableModal');
+            renderFloorPlan();
+            showToast(`Mesa ${code} (${capacity} pax) añadida al plano.`, 'success');
+        }
+
+        function deleteTable(tableId) {
+            const room = getCurrentRoom();
+            room.tables = room.tables.filter(t => t.id !== tableId);
+            state.reservations = state.reservations.filter(r => r.tableId !== tableId);
+            saveState();
+            renderAll();
+            showToast('Mesa eliminada del plano.', 'info');
+        }
+
+        // =========================================================================
+        // 8. PANEL LATERAL DE RESERVAS Y RECORDATORIO WHATSAPP
+        // =========================================================================
+        function renderReservationsSidebar() {
+            const list = document.getElementById('reservationsList');
+            const dateLabel = document.getElementById('sidebarDateLabel');
+            const coversBadge = document.getElementById('totalCoversBadge');
+
+            // Formatear fecha legible
+            const [y, m, d] = state.currentDate.split('-');
+            dateLabel.textContent = `${d}/${m}/${y} · Todas las salas`;
+
+            const dayReservations = state.reservations
+                .filter(r => r.date === state.currentDate)
+                .sort((a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime));
+
+            const totalCovers = dayReservations.reduce((sum, r) => sum + r.covers, 0);
+            coversBadge.textContent = `${totalCovers} comensales`;
+
+            if (dayReservations.length === 0) {
+                list.innerHTML = `
+                    <div class="text-center py-10 px-4">
+                        <i class="ph ph-calendar-x text-4xl text-slate-300 mb-2"></i>
+                        <p class="text-sm font-medium text-slate-500">Sin reservas para este día</p>
+                        <p class="text-xs text-slate-400 mt-1">Haz clic sobre cualquier mesa libre del plano para adjudicarla.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            list.innerHTML = dayReservations.map(r => {
+                const room = state.rooms.find(rm => rm.id === r.roomId);
+                const table = room ? room.tables.find(tb => tb.id === r.tableId) : null;
+                const tableCode = table ? table.code : '?';
+                const roomName = room ? room.name : '';
+
+                return `
+                    <div class="p-3 rounded-xl border border-slate-200 bg-white hover:border-indigo-300 transition shadow-sm group">
+                        <div class="flex items-start justify-between gap-2">
+                            <div class="flex items-center gap-2.5">
+                                <span class="px-2.5 py-1 rounded-lg font-extrabold text-xs ${r.type === 'full' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-800'}">
+                                    ${tableCode}
+                                </span>
+                                <div>
+                                    <h4 class="font-bold text-sm text-slate-800 leading-tight">${r.clientName}</h4>
+                                    <span class="text-[11px] text-slate-400">${roomName}</span>
+                                </div>
+                            </div>
+                            <span class="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                                ${r.startTime}${r.type === 'shift' ? ' - ' + r.endTime : ''}
+                            </span>
+                        </div>
+                        <div class="mt-2.5 pt-2 border-t border-slate-100 flex items-center justify-between text-xs text-slate-600">
+                            <div class="flex items-center gap-3">
+                                <span class="font-semibold"><i class="ph ph-users text-indigo-500"></i> ${r.covers} pax</span>
+                                <span class="text-[11px] px-1.5 py-0.5 rounded ${r.type === 'full' ? 'bg-rose-50 text-rose-600' : 'bg-amber-50 text-amber-700'}">
+                                    ${r.type === 'full' ? 'Completa' : 'Turno'}
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button onclick="sendWhatsAppReminder('${r.id}')" class="flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold transition" title="Enviar confirmación por WhatsApp">
+                                    <i class="ph ph-whatsapp-logo text-sm"></i>
+                                    <span>Avisar</span>
+                                </button>
+                                <button onclick="deleteReservation('${r.id}')" class="p-1 text-slate-400 hover:text-rose-600 rounded transition" title="Eliminar">
+                                    <i class="ph ph-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function sendWhatsAppReminder(resId) {
+            const res = state.reservations.find(r => r.id === resId);
+            if (!res) return;
+            const room = state.rooms.find(rm => rm.id === res.roomId);
+            const table = room ? room.tables.find(tb => tb.id === res.tableId) : null;
+            const msg = `Recordatorio WhatsApp enviado a ${res.clientName} (${res.phone || 'Sin teléfono'}): Mesa ${table ? table.code : ''} a las ${res.startTime} para ${res.covers} comensales.`;
+            showToast(msg, 'whatsapp');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.add('hidden');
+            if (modalId === 'reservationModal') activeTableIdForModal = null;
+        }
+
+        // Inicializar aplicación al cargar la página
+        window.addEventListener('DOMContentLoaded', () => {
+            initControls();
+            renderAll();
+        });
+    </script>
+</body>
+</html>
